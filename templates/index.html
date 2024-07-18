@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Sales Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        table, th, td {
+            border: 1px solid black;
+        }
+        th, td {
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <h1>Sales Dashboard</h1>
+    <button onclick="refreshData()">Refresh Data</button>
+    <table id="callsTable">
+        <thead>
+            <tr>
+                <th onclick="sortTable(0)">Timestamp</th>
+                <th onclick="sortTable(1)">Agent</th>
+                <th onclick="sortTable(2)">Caller ID</th>
+                <th onclick="sortTable(3)">Duration</th>
+                <th onclick="sortTable(4)">Cost</th>
+                <th onclick="sortTable(5)">Application</th>
+                <th onclick="sortTable(6)">Premium</th>
+                <th onclick="sortTable(7)">Carrier</th>
+                <th onclick="sortTable(8)">Coverage</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for call in calls %}
+            <tr>
+                <td>{{ call.timestamp }}</td>
+                <td>{{ call.agent }}</td>
+                <td>{{ call.callerid }}</td>
+                <td>{{ call.duration }}</td>
+                <td>{{ call.cost }}</td>
+                <td>{{ call.application }}</td>
+                <td>{{ call.premium }}</td>
+                <td>{{ call.carrier }}</td>
+                <td>{{ call.coverage }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <script>
+        function sortTable(n) {
+            var table, rows, switching, i, x, y, shouldSwitch, dir, switchcount = 0;
+            table = document.getElementById("callsTable");
+            switching = true;
+            dir = "asc"; 
+            while (switching) {
+                switching = false;
+                rows = table.rows;
+                for (i = 1; i < (rows.length - 1); i++) {
+                    shouldSwitch = false;
+                    x = rows[i].getElementsByTagName("TD")[n];
+                    y = rows[i + 1].getElementsByTagName("TD")[n];
+                    if (dir == "asc") {
+                        if (x.innerHTML.toLowerCase() > y.innerHTML.toLowerCase()) {
+                            shouldSwitch = true;
+                            break;
+                        }
+                    } else if (dir == "desc") {
+                        if (x.innerHTML.toLowerCase() < y.innerHTML.toLowerCase()) {
+                            shouldSwitch = true;
+                            break;
+                        }
+                    }
+                }
+                if (shouldSwitch) {
+                    rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
+                    switching = true;
+                    switchcount ++;
+                } else {
+                    if (switchcount == 0 && dir == "asc") {
+                        dir = "desc";
+                        switching = true;
+                    }
+                }
+            }
+        }
+
+        function refreshData() {
+            fetch('/refresh')
+                .then(response => response.json())
+                .then(data => {
+                    let tableBody = document.querySelector('#callsTable tbody');
+                    tableBody.innerHTML = '';
+                    data.forEach(call => {
+                        let row = `<tr>
+                            <td>${call.timestamp}</td>
+                            <td>${call.agent}</td>
+                            <td>${call.callerid}</td>
+                            <td>${call.duration}</td>
+                            <td>${call.cost}</td>
+                            <td>${call.application}</td>
+                            <td>${call.premium}</td>
+                            <td>${call.carrier}</td>
+                            <td>${call.coverage}</td>
+                        </tr>`;
+                        tableBody.innerHTML += row;
+                    });
+                });
+        }
+    </script>
+</body>
+</html>
