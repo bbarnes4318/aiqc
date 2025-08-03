@@ -6,11 +6,15 @@ import os
 from datetime import datetime
 from flask import Flask, render_template, jsonify
 
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 app = Flask(__name__)
 
-ASSEMBLYAI_API_KEY = 'c34fcd7703954d55b39dba9ec1a7b04c'
+ASSEMBLYAI_API_KEY = os.getenv('ASSEMBLYAI_API_KEY')
 RINGBA_API_KEY = '09f0c9f071a1efe5c7417f4c8f9ec34ef7cf5b59eb7b85dfbb4bca13414585a761cf1bcfe7ddc6e34b9c663f86a231c9cf746162577f415e1c6bd6be60d60874dfc5568b9434131f746064fcf1517c0c8df332dfe3a74654e4caeb7d0203d353fe351327172f544f20616ce504fe14f9e55f4fc7'
-OPENAI_API_KEY = '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'
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 openai.api_key = OPENAI_API_KEY
 
 call_data = []

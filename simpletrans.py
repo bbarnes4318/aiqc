@@ -3,7 +3,11 @@ import time
 import json
 import os
 
-ASSEMBLYAI_API_KEY = 'c34fcd7703954d55b39dba9ec1a7b04c'
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+ASSEMBLYAI_API_KEY = os.getenv('ASSEMBLYAI_API_KEY')
 
 def get_audio_files(directory):
     """Returns a list of audio file paths from the specified directory."""

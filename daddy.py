@@ -1,11 +1,16 @@
+import os
 import requests
 import openai
 import time
 import json
 
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 # AssemblyAI and OpenAI API keys
-ASSEMBLYAI_API_KEY = 'c34fcd7703954d55b39dba9ec1a7b04c'
-OPENAI_API_KEY = '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'
+ASSEMBLYAI_API_KEY = os.getenv('ASSEMBLYAI_API_KEY')
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 openai.api_key = OPENAI_API_KEY
 
 # Function to read URLs from a file

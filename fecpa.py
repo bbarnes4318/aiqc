@@ -1,46 +1,112 @@
-import requests
 import openai
-import time
-import json
+import requests
 import os
+from azure.cognitiveservices.speech import SpeechConfig, SpeechRecognizer, AudioConfig, ResultReason, SpeechRecognitionResult
+from pydub import AudioSegment
 
-ASSEMBLYAI_API_KEY = 'c34fcd7703954d55b39dba9ec1a7b04c'
-OPENAI_API_KEY = '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'
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+# Set ffmpeg and ffprobe paths
+current_dir = os.path.dirname(os.path.abspath(__file__))
+ffmpeg_path = os.path.join(current_dir, "ffmpeg", "bin", "ffmpeg.exe")
+ffprobe_path = os.path.join(current_dir, "ffmpeg", "bin", "ffprobe.exe")
+
+AudioSegment.ffmpeg = ffmpeg_path
+AudioSegment.ffprobe = ffprobe_path
+
+# Verify the correct version of the openai package is being used
+expected_version = "0.28.0"
+assert openai.__version__ == expected_version, f"Expected openai version {expected_version}, but got {openai.__version__}"
+
+AZURE_SPEECH_KEY = '7b89559462c545e3ad4a1458d85c1b5f'
+AZURE_REGION = 'eastus'
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 openai.api_key = OPENAI_API_KEY
 
 def read_urls_from_file(file_name='urls.txt'):
     """Reads URLs from a file and returns a list of URLs."""
+    print(f"Reading URLs from {file_name}")
+    if not os.path.exists(file_name):
+        raise FileNotFoundError(f"{file_name} does not exist.")
+    
     with open(file_name, 'r') as file:
         urls = file.readlines()
-    return [url.strip() for url in urls if url.strip()]
+    
+    urls = [url.strip() for url in urls if url.strip()]
+    print(f"Found URLs: {urls}")
+    return urls
 
 def download_mp3(url, file_name):
     """Downloads an MP3 file from a given URL."""
+    print(f"Downloading audio from: {url}")
     response = requests.get(url)
-    with open(file_name, 'wb') as file:
-        file.write(response.content)
+    if response.status_code == 200:
+        with open(file_name, 'wb') as file:
+            file.write(response.content)
+        print(f"Downloaded audio file from {url} to {file_name}")
+    else:
+        print(f"Failed to download audio file from {url}, status code: {response.status_code}")
 
-def upload_audio_to_assemblyai(file_path):
-    """Uploads an audio file to AssemblyAI and returns the upload URL."""
-    headers = {'authorization': ASSEMBLYAI_API_KEY}
-    response = requests.post('https://api.assemblyai.com/v2/upload',
-                             headers=headers,
-                             files={'file': open(file_path, 'rb')})
-    return response.json()['upload_url']
+def convert_mp3_to_wav(mp3_file, wav_file):
+    """Converts an MP3 file to WAV format."""
+    print(f"Converting {mp3_file} to {wav_file}")
+    audio = AudioSegment.from_mp3(mp3_file)
+    audio.export(wav_file, format="wav")
+    print(f"Converted {mp3_file} to {wav_file}")
 
-def transcribe_audio(assemblyai_url):
-    """Submits an audio file for transcription on AssemblyAI and waits for the transcription to complete."""
-    headers = {'authorization': ASSEMBLYAI_API_KEY, 'content-type': 'application/json'}
-    json_data = {'audio_url': assemblyai_url}
-    response = requests.post('https://api.assemblyai.com/v2/transcript', json=json_data, headers=headers)
-    transcript_id = response.json()['id']
+def check_audio_file(file_path):
+    """Checks if the audio file is valid and playable."""
+    try:
+        audio = AudioSegment.from_file(file_path)
+        duration = len(audio)
+        if duration == 0:
+            raise ValueError("Audio file is empty")
+        print(f"Audio file '{file_path}' is valid with duration {duration}ms")
+        return True
+    except Exception as e:
+        print(f"Invalid audio file '{file_path}': {str(e)}")
+        return False
 
-    while True:
-        check_response = requests.get(f'https://api.assemblyai.com/v2/transcript/{transcript_id}', headers=headers)
-        if check_response.json()['status'] == 'completed':
-            return check_response.json()['text']
-        elif check_response.json()['status'] == 'failed':
-            return "Transcription failed"
+def transcribe_audio_with_azure(file_path):
+    """Transcribes an audio file using Azure Speech Services."""
+    try:
+        speech_config = SpeechConfig(subscription=AZURE_SPEECH_KEY, region=AZURE_REGION)
+        audio_config = AudioConfig(filename=file_path)
+        recognizer = SpeechRecognizer(speech_config=speech_config, audio_config=audio_config)
+
+        done = False
+        result_text = ""
+
+        def stop_cb(evt):
+            """Callback to stop continuous recognition."""
+            nonlocal done
+            done = True
+
+        def recognized_cb(evt):
+            """Callback to handle recognized speech."""
+            nonlocal result_text
+            if evt.result.reason == ResultReason.RecognizedSpeech:
+                result_text += evt.result.text + " "
+            elif evt.result.reason == ResultReason.NoMatch:
+                print("No speech could be recognized.")
+
+        recognizer.recognized.connect(recognized_cb)
+        recognizer.session_stopped.connect(stop_cb)
+        recognizer.canceled.connect(stop_cb)
+
+        recognizer.start_continuous_recognition()
+        while not done:
+            pass
+        recognizer.stop_continuous_recognition()
+        
+        if result_text:
+            return result_text
+        else:
+            return "No speech could be recognized"
+    except Exception as e:
+        return f"Exception during recognition: {str(e)}"
 
 def analyze_transcript_with_chatgpt(transcript):
     """
@@ -50,25 +116,28 @@ def analyze_transcript_with_chatgpt(transcript):
     Analyze the following call transcript:
     {transcript}
 
-The objective is to determine if an application for final expense insurance was submitted during a phone call with a customer. The primary indicator of an application being submitted is the provision of payment information by the customer. If the customer provides their bank routing and account numbers, and/or their credit or debit card number, it is a clear indication that an application was submitted.
+    The objective is to determine if an application for final expense insurance was submitted during a phone call with a customer. The primary indicator of an application being submitted is the provision of payment information by the customer. If the customer provides their bank routing and account numbers, and/or their credit or debit card number, it is a clear indication that an application was submitted.
 
-### Main Question:
-**Was a final expense insurance application submitted?**
+    ### Main Question:
+    **Was a final expense insurance application submitted?**
 
-### If an application was submitted, please provide the following details:
+    ### If an application was submitted, please provide the following details:
 
-1. **Monthly Premium**: The amount the customer will pay each month.
-2. **Carrier**: The insurance company providing the policy.
-3. **Coverage Amount**: The total benefit amount of the policy.
-4. **Date of Initial Payment**: The date when the first payment is scheduled or was made.
-5. **Policy Type**: Indicate whether the policy is:
-   - Level Policy
-   - Graded/Modified Policy
-   - Guaranteed Issue Policy
-6. **Customer Full Name**: The full name of the customer as provided during the application process.
+    1. **Monthly Premium**: The amount the customer will pay each month.
+    2. **Carrier**: The insurance company providing the policy.
+    3. **Coverage Amount**: The total benefit amount of the policy.
+    4. **Date of Initial Payment**: The date when the first payment is scheduled or was made.
+    5. **Policy Type**: Indicate whether the policy is:
+       - Level Policy
+       - Graded/Modified Policy
+       - Guaranteed Issue Policy
+    6. **Customer Full Name**: The full name of the customer as provided during the application process.
+    7. **Payment Information Provided**: Specify if the customer provided:
+       - Bank routing and account numbers
+       - Credit or debit card number
     """
     response = openai.ChatCompletion.create(
-        model="gpt-4-0125-preview",
+        model="gpt-4o",
         messages=[
             {"role": "system", "content": "You are a highly intelligent AI trained to analyze call transcripts for insurance purposes."},
             {"role": "user", "content": prompt}
@@ -83,16 +152,44 @@ The objective is to determine if an application for final expense insurance was 
 
 def process_call(url):
     """Orchestrates the process of handling a call: downloading, uploading for transcription, transcribing, and analyzing."""
-    temp_file_name = 'temp_audio.mp3'
+    temp_mp3_file = 'temp_audio.mp3'
+    temp_wav_file = 'temp_audio.wav'
+    analysis_result = None
     try:
-        download_mp3(url, temp_file_name)
-        assemblyai_url = upload_audio_to_assemblyai(temp_file_name)
-        transcript = transcribe_audio(assemblyai_url)
+        print(f"Current directory: {os.getcwd()}")
+        print(f"Downloading audio from: {url}")
+        download_mp3(url, temp_mp3_file)
+        
+        # Check if the file exists immediately after downloading
+        if not os.path.exists(temp_mp3_file):
+            raise ValueError(f"File {temp_mp3_file} does not exist after downloading")
+        
+        print(f"Downloaded audio file to {temp_mp3_file}")
+        
+        file_size = os.path.getsize(temp_mp3_file)
+        print(f"File size: {file_size} bytes")
+        
+        print("Downloaded audio, now validating...")
+        if not check_audio_file(temp_mp3_file):
+            raise ValueError("Downloaded audio file is invalid")
+
+        print(f"Converting {temp_mp3_file} to WAV format for Azure Speech recognition...")
+        convert_mp3_to_wav(temp_mp3_file, temp_wav_file)
+
+        print("Valid audio, now transcribing with Azure...")
+        transcript = transcribe_audio_with_azure(temp_wav_file)
+        print(f"Transcription result: {transcript}")
+        print("Analyzing transcription with ChatGPT...")
         analysis_result = analyze_transcript_with_chatgpt(transcript)
+        print(f"Analysis result: {analysis_result}")
+    except Exception as e:
+        print(f"Error processing call: {str(e)}")
     finally:
-        # Clean up by removing the temporary audio file
-        if os.path.exists(temp_file_name):
-            os.remove(temp_file_name)
+        # Clean up by removing the temporary audio files
+        if os.path.exists(temp_mp3_file):
+            os.remove(temp_mp3_file)
+        if os.path.exists(temp_wav_file):
+            os.remove(temp_wav_file)
     
     return analysis_result
 
